@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>React Form - Validation - Redux</title>
+
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/redux@4.2.1/dist/redux.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-redux@8.1.3/dist/react-redux.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#3d4650}
+    .container{width:min(1080px,calc(100% - 32px));margin:28px auto 50px}
+    .title{text-align:center;font-family:Georgia,"Times New Roman",serif;font-style:italic;color:#666;font-size:38px;margin:0 0 24px}
+    .card{border:1px solid #e1e4e7;border-radius:4px;box-shadow:0 2px 7px rgba(0,0,0,.08);overflow:hidden;background:#fff}
+    .card-header{background:#343a40;color:#fff;padding:15px 20px;font-size:22px;font-weight:700}
+    .form{padding:20px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 20px}
+    .field label{display:block;font-weight:700;margin-bottom:7px;font-size:14px}
+    .field input{width:100%;height:42px;border:1px solid #ced4da;border-radius:4px;padding:8px 12px;outline:none;font-size:15px}
+    .field input:focus{border-color:#80bdff;box-shadow:0 0 0 2px rgba(0,123,255,.12)}
+    .field input.error{border-color:#dc3545}
+    .error-text{color:#dc3545;font-size:13px;margin-top:5px;min-height:16px}
+    .actions{margin-top:8px;display:flex;gap:10px}
+    button{border:0;border-radius:4px;padding:10px 17px;font-size:14px;cursor:pointer}
+    .btn-primary{background:#28a745;color:white}.btn-primary:hover{background:#218838}
+    .btn-secondary{background:#6c757d;color:white}.btn-secondary:hover{background:#5a6268}
+    .btn-edit{background:#ffc107;color:#212529}.btn-delete{background:#dc3545;color:white}
+    .table-card{margin-top:24px}
+    .search-row{padding:16px 20px;border-bottom:1px solid #e4e6e8;background:#fafafa}
+    .search-row input{width:100%;height:42px;border:1px solid #ced4da;border-radius:4px;padding:8px 12px;font-size:15px;outline:none}
+    .search-row input:focus{border-color:#80bdff;box-shadow:0 0 0 2px rgba(0,123,255,.12)}
+    table{width:100%;border-collapse:collapse}
+    th{background:#343a40;color:white;text-align:left;padding:13px 12px;font-size:14px}
+    td{border-bottom:1px solid #dee2e6;padding:12px;font-size:14px}
+    tr:hover td{background:#f8f9fa}
+    .empty{text-align:center;color:#777;padding:25px}
+    .mode{padding:12px 20px 0;color:#007bff;font-weight:700;font-size:14px}
+    .toast{margin:0 20px 15px;padding:10px 12px;border-radius:4px;background:#d4edda;color:#155724;border:1px solid #c3e6cb;font-size:14px}
+    .footer-note{text-align:center;margin-top:18px;color:#777;font-size:13px}
+    @media(max-width:720px){.container{width:calc(100% - 20px)}.grid{grid-template-columns:1fr}.title{font-size:30px}.table-wrap{overflow-x:auto}table{min-width:800px}}
+  </style>
+</head>
+
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { Provider, connect } = ReactRedux;
+const { createStore } = Redux;
+
+/* =========================
+   REDUX
+========================= */
+const initialState = {
+  students: [
+    { id:"1", name:"Nguyễn Văn A", phone:"0938111111", email:"nguyenvana@gmail.com" },
+    { id:"2", name:"Nguyễn Văn B", phone:"09382223232", email:"nguyenvanb@gmail.com" }
+  ]
+};
+
+const ADD_STUDENT = "ADD_STUDENT";
+const DELETE_STUDENT = "DELETE_STUDENT";
+const UPDATE_STUDENT = "UPDATE_STUDENT";
+
+function reducer(state = initialState, action) {
+  switch (action.type) {
+    case ADD_STUDENT:
+      return {
+        ...state,
+        students: [...state.students, action.payload]
+      };
+
+    case DELETE_STUDENT:
+      return {
+        ...state,
+        students: state.students.filter(student => student.id !== action.payload)
+      };
+
+    case UPDATE_STUDENT: {
+      /*
+        FIX QUAN TRỌNG:
+        Dùng originalId để xác định dòng cũ.
+        Nhờ vậy người dùng có thể sửa cả Mã SV,
+        Họ tên, SĐT hoặc Email mà Redux vẫn cập nhật đúng dòng.
+      */
+      const { originalId, student } = action.payload;
+
+      return {
+        ...state,
+        students: state.students.map(item =>
+          item.id === originalId ? student : item
+        )
+      };
+    }
+
+    default:
+      return state;
+  }
+}
+
+const store = createStore(reducer);
+
+/* =========================
+   FORM
+========================= */
+class StudentForm extends React.Component {
+  constructor(props) {
+    super(props);
+
+    this.state = {
+      id: "",
+      name: "",
+      phone: "",
+      email: "",
+      errors: {},
+      message: ""
+    };
+  }
+
+  /*
+    Lifecycle được dùng đúng mục đích:
+    Khi editingId thay đổi từ null -> một mã sinh viên,
+    lấy dữ liệu sinh viên từ Redux đổ vào form.
+  */
+  componentDidUpdate(prevProps) {
+    if (
+      prevProps.editingId !== this.props.editingId &&
+      this.props.editingId !== null
+    ) {
+      const student = this.props.students.find(
+        item => item.id === this.props.editingId
+      );
+
+      if (student) {
+        this.setState({
+          id: student.id,
+          name: student.name,
+          phone: student.phone,
+          email: student.email,
+          errors: {},
+          message: ""
+        });
+      }
+    }
+  }
+
+  handleChange = (event) => {
+    const { name, value } = event.target;
+
+    this.setState(prev => ({
+      [name]: value,
+      errors: {
+        ...prev.errors,
+        [name]: ""
+      },
+      message: ""
+    }));
+  };
+
+  validate = () => {
+    const { id, name, phone, email } = this.state;
+    const errors = {};
+
+    if (!id.trim()) {
+      errors.id = "Mã SV không được để trống.";
+    } else if (!/^[0-9]+$/.test(id.trim())) {
+      errors.id = "Mã SV chỉ được chứa số.";
+    }
+
+    if (!name.trim()) {
+      errors.name = "Họ tên không được để trống.";
+    }
+
+    if (!phone.trim()) {
+      errors.phone = "Số điện thoại không được để trống.";
+    } else if (!/^0[0-9]{9,10}$/.test(phone.trim())) {
+      errors.phone = "Số điện thoại phải có 10-11 số và bắt đầu bằng 0.";
+    }
+
+    if (!email.trim()) {
+      errors.email = "Email không được để trống.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      errors.email = "Email không đúng định dạng.";
+    }
+
+    return errors;
+  };
+
+  handleSubmit = (event) => {
+    event.preventDefault();
+
+    const errors = this.validate();
+
+    if (Object.keys(errors).length > 0) {
+      this.setState({ errors, message: "" });
+      return;
+    }
+
+    const student = {
+      id: this.state.id.trim(),
+      name: this.state.name.trim(),
+      phone: this.state.phone.trim(),
+      email: this.state.email.trim()
+    };
+
+    /* =========================
+       CHỈNH SỬA / UPDATE
+    ========================= */
+    if (this.props.editingId !== null) {
+      // Nếu đổi Mã SV thì kiểm tra mã mới có trùng dòng khác không.
+      const duplicateId = this.props.students.some(
+        item =>
+          item.id === student.id &&
+          item.id !== this.props.editingId
+      );
+
+      if (duplicateId) {
+        this.setState({
+          errors: { id: "Mã SV mới đã tồn tại." },
+          message: ""
+        });
+        return;
+      }
+
+      this.props.updateStudent(
+        this.props.editingId, // Mã của dòng cũ
+        student               // Thông tin mới
+      );
+
+      this.setState({
+        id: "",
+        name: "",
+        phone: "",
+        email: "",
+        errors: {},
+        message: "Cập nhật sinh viên thành công!"
+      });
+
+      this.props.setEditingId(null);
+      return;
+    }
+
+    /* =========================
+       THÊM
+    ========================= */
+    const existed = this.props.students.some(
+      item => item.id === student.id
+    );
+
+    if (existed) {
+      this.setState({
+        errors: { id: "Mã SV đã tồn tại. Vui lòng nhập mã khác." },
+        message: ""
+      });
+      return;
+    }
+
+    this.props.addStudent(student);
+
+    this.setState({
+      id: "",
+      name: "",
+      phone: "",
+      email: "",
+      errors: {},
+      message: "Thêm sinh viên thành công!"
+    });
+  };
+
+  resetForm = () => {
+    this.setState({
+      id: "",
+      name: "",
+      phone: "",
+      email: "",
+      errors: {},
+      message: ""
+    });
+  };
+
+  handleCancel = () => {
+    this.props.setEditingId(null);
+    this.resetForm();
+  };
+
+  renderField = (label, name, placeholder) => {
+    const error = this.state.errors[name];
+
+    return (
+      <div className="field">
+        <label>{label}</label>
+        <input
+          name={name}
+          value={this.state[name]}
+          placeholder={placeholder}
+          onChange={this.handleChange}
+          className={error ? "error" : ""}
+        />
+        <div className="error-text">{error || ""}</div>
+      </div>
+    );
+  };
+
+  render() {
+    const editing = this.props.editingId !== null;
+
+    return (
+      <div className="card">
+        <div className="card-header">Thông tin sinh viên</div>
+
+        {editing && (
+          <div className="mode">
+            Đang sửa mã SV: {this.props.editingId}
+          </div>
+        )}
+
+        <form className="form" onSubmit={this.handleSubmit}>
+          <div className="grid">
+            {this.renderField("Mã SV", "id", "Nhập mã sinh viên")}
+            {this.renderField("Họ tên", "name", "Nhập họ tên")}
+            {this.renderField("Số điện thoại", "phone", "Nhập số điện thoại")}
+            {this.renderField("Email", "email", "Nhập email")}
+          </div>
+
+          <div className="actions">
+            <button className="btn-primary" type="submit">
+              {editing ? "Cập nhật sinh viên" : "Thêm sinh viên"}
+            </button>
+
+            {editing && (
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={this.handleCancel}
+              >
+                Hủy sửa
+              </button>
+            )}
+          </div>
+        </form>
+
+        {this.state.message && (
+          <div className="toast">{this.state.message}</div>
+        )}
+      </div>
+    );
+  }
+}
+
+/* =========================
+   TABLE + SEARCH
+========================= */
+class StudentTable extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { search: "" };
+  }
+
+  handleSearch = event => {
+    this.setState({ search: event.target.value });
+  };
+
+  handleEdit = id => {
+    this.props.setEditingId(id);
+  };
+
+  handleDelete = id => {
+    if (window.confirm("Bạn có chắc muốn xóa sinh viên này?")) {
+      this.props.deleteStudent(id);
+
+      if (this.props.editingId === id) {
+        this.props.setEditingId(null);
+      }
+    }
+  };
+
+  render() {
+    const keyword = this.state.search.trim().toLowerCase();
+
+    const filteredStudents = this.props.students.filter(student =>
+      student.id.toLowerCase().includes(keyword) ||
+      student.name.toLowerCase().includes(keyword) ||
+      student.phone.toLowerCase().includes(keyword) ||
+      student.email.toLowerCase().includes(keyword)
+    );
+
+    return (
+      <div className="card table-card">
+        <div className="card-header">Danh sách sinh viên</div>
+
+        <div className="search-row">
+          <input
+            value={this.state.search}
+            onChange={this.handleSearch}
+            placeholder="Tìm kiếm theo mã SV, họ tên, số điện thoại hoặc email..."
+          />
+        </div>
+
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Mã SV</th>
+                <th>Họ tên</th>
+                <th>Số điện thoại</th>
+                <th>Email</th>
+                <th>Thao tác</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {filteredStudents.length === 0 ? (
+                <tr>
+                  <td colSpan="5" className="empty">
+                    Không tìm thấy sinh viên.
+                  </td>
+                </tr>
+              ) : (
+                filteredStudents.map(student => (
+                  <tr key={student.id}>
+                    <td>{student.id}</td>
+                    <td>{student.name}</td>
+                    <td>{student.phone}</td>
+                    <td>{student.email}</td>
+                    <td>
+                      <button
+                        className="btn-edit"
+                        onClick={() => this.handleEdit(student.id)}
+                      >
+                        Sửa
+                      </button>
+                      {" "}
+                      <button
+                        className="btn-delete"
+                        onClick={() => this.handleDelete(student.id)}
+                      >
+                        Xóa
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+}
+
+/* =========================
+   APP
+========================= */
+class App extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
+      editingId: null
+    };
+  }
+
+  setEditingId = id => {
+    this.setState({ editingId: id });
+
+    if (id !== null) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
+
+  render() {
+    return (
+      <div className="container">
+        <h1 className="title">React Form - validation</h1>
+
+        <StudentForm
+          students={this.props.students}
+          editingId={this.state.editingId}
+          setEditingId={this.setEditingId}
+          addStudent={this.props.addStudent}
+          updateStudent={this.props.updateStudent}
+        />
+
+        <StudentTable
+          students={this.props.students}
+          editingId={this.state.editingId}
+          setEditingId={this.setEditingId}
+          deleteStudent={this.props.deleteStudent}
+        />
+
+      </div>
+    );
+  }
+}
+
+/*
+  Redux connect:
+  UPDATE_STUDENT nhận cả originalId và student mới.
+*/
+const ConnectedApp = connect(
+  state => ({
+    students: state.students
+  }),
+  dispatch => ({
+    addStudent: student =>
+      dispatch({
+        type: ADD_STUDENT,
+        payload: student
+      }),
+
+    deleteStudent: id =>
+      dispatch({
+        type: DELETE_STUDENT,
+        payload: id
+      }),
+
+    updateStudent: (originalId, student) =>
+      dispatch({
+        type: UPDATE_STUDENT,
+        payload: {
+          originalId,
+          student
+        }
+      })
+  })
+)(App);
+
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <Provider store={store}>
+    <ConnectedApp />
+  </Provider>
+);
+</script>
+</body>
+</html>
